@@ -1,0 +1,143 @@
+---
+title: "Weight Lifting Exercises"
+author: "Amom Mendes"
+date: "July 2 2016"
+output: html_document
+---
+
+### Prediction Assignment: How well are people doing exercises?
+
+This document describes the prediction project of Practical Machine Learning course from Cousera.
+Here we need to predict the quality of exercises done by some volunteers. 
+
+
+The dataset were collect through body sensors that recorded the body movements when these people were doing exercises (unilateral dumbbell biceps curl) "correctly" and "incorrectly". Correct exercises were labeled as "Class A" exercises and incorrect exercises were labeled as "Class B" to "Class E", representing common mistakes when doing unilateral dumbbel biceps curl.
+
+#### **Exploring data**
+
+```{r reading, cache=TRUE}
+
+#Libraries
+library (ggplot2)
+library (caret)
+## To download data
+#train<-read.csv ("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+#test<- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+
+# Openning from my local disk
+
+data<- read.csv ('./train.csv', h=T, row.names = 1, na.strings = c('#DIV/0!', 'NA'))
+inTrain<- createDataPartition(y=data$classe, p=.7,list=F)
+
+train<- data[inTrain,]
+test<- data[-inTrain,]
+
+validation<- read.csv("./test.csv", h=T,row.names = 1, na.strings = c('#DIV/0!', 'NA'))
+```
+
+The training data downloaded were divided to cross validation and model selection in two subset: train and test. The original test data were user as validation dataset.
+
+#### **Preprocessing data**
+
+My approach to pre-processing data were simple. I just removed features that had 95% of missing data.
+
+```{r cache=TRUE}
+# Function to list columns with more than 95% of values with NA values.
+
+missInt<- function (dt){
+    int<- NA
+    for (i in 1:ncol(dt)){
+        if (mean (is.na(dt[,i]))> .95){
+            int[i]<- TRUE} else{int[i]<-FALSE}
+    }
+
+    return (which (int==F))
+}
+missInt(validation)==missInt(train)
+del<-missInt(train)
+
+train<- train[,del]
+train<- train [,-(1:7)]
+
+test<- test[,del]
+test<- test[,-(1:7)]
+
+validation<- validation[,del]
+validation<- validation[,-(1:7)]
+
+```
+
+#### **Modelling**
+
+I constructed three models:
+
+1 - Boosting model
+
+2 - Random Forest
+
+3 - Stacked Model (with prediction of other two models)
+
+```{r, message=FALSE, warning=FALSE, cache=FALSE}
+library (caret)
+set.seed (33226)
+ctrl<- trainControl(method='cv', number=4, verboseIter = F) # Defining some parameters to control models
+
+modGBM<-  train (classe~., data=train, method='gbm', trControl=ctrl )
+
+modRF<-   train (classe~., data=train, method='rf', ntree=99,
+        trControl=ctrl) # I reduced the number of threes because
+                        #computational power in my local machine
+
+pred2<-predict (modGBM, test)
+pred3<-predict (modRF, test)
+
+combMod<- data.frame (pred2,pred3,classe=test$classe)
+
+modSTK<- train (classe~., method='rf', trControl=ctrl, ntree=99, data=combMod)
+```
+
+#### Assessing the models
+
+```{r}
+predGBM<-predict (modGBM, test)
+predRF<-predict (modRF, test)
+predSTK<-predict (modSTK, test)
+
+```
+
+
+Boosting model: `r round (confusionMatrix(predGBM, test$classe)$overall['Accuracy']*100,2)`
+
+
+Random Forest model: `r round (confusionMatrix(predRF, test$classe)$overall['Accuracy']*100,3)`
+
+
+Stacked model: `r round (confusionMatrix(predSTK, test$classe)$overall['Accuracy']*100,3)`
+
+Random Forest and Stacked model seem to be the acuracy. Probably because them use the same algorithm, but would be necessary to control for some overfitting, probably due to number of predictors and correlation between them. However, because of time I will continue to this mdoel to make predictions.
+
+How are the most important variables?
+
+```{r}
+varImp (modRF)
+```
+
+Lets plot some of them:
+
+
+```{r}
+qplot (x=classe, y=roll_belt, data=train, geom = 'boxplot', 
+       fill=as.factor (train$classe))
+qplot (x=classe, y=yaw_belt, data=train, geom = 'boxplot', 
+       fill=as.factor (train$classe))
+qplot (x=classe, y=pitch_forearm, data=train, geom = 'boxplot', 
+       fill=as.factor (train$classe))
+```
+
+
+#### Model Predictions
+
+```{r}
+predValidation<- predict (modRF, validation)
+data.frame(Id=1:20, Prediction=predValidation)
+```
